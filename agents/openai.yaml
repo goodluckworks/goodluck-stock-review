@@ -1,0 +1,9 @@
+interface:
+  display_name: "Goodluck 美股每日盘后回顾"
+  short_description: "生成可核验的中文美股盘后 HTML、数据审计与视觉验收"
+  icon_small: "./assets/market-review.svg"
+  icon_large: "./assets/market-review.svg"
+  brand_color: "#1D4ED8"
+  default_prompt: "使用 $goodluck-us-market-daily-review 生成最新已完成美股交易日的中文盘后 HTML 报告，并完成数据与视觉审查。"
+policy:
+  allow_implicit_invocation: true

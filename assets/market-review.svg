@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Market review">
+  <defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#1d4ed8"/><stop offset="1" stop-color="#38bdf8"/></linearGradient></defs>
+  <rect width="512" height="512" rx="112" fill="#101a30"/>
+  <path d="M88 368V144M88 368h336" stroke="#8ca7d8" stroke-width="24" stroke-linecap="round"/>
+  <path d="m120 318 82-82 62 44 118-126" fill="none" stroke="url(#g)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="382" cy="154" r="22" fill="#34d399"/>
+</svg>
