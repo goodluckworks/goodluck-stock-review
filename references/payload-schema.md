@@ -6,8 +6,9 @@ The renderer consumes UTF-8 JSON. Final payloads must not contain `TODO`, `TBD`,
 
 | Field | Type | Required | Meaning |
 |---|---:|---:|---|
-| `report_date` | string | yes | U.S. calendar date, `YYYY-MM-DD`. |
-| `report_type` | string | yes | `full_rth` or `closed_market`. |
+| `market` | string | no | `us` (default) or `cn`. |
+| `report_date` | string | yes | Evaluated market calendar date, `YYYY-MM-DD`. |
+| `report_type` | string | yes | U.S.: `full_rth`/`closed_market`; China: `full_cn`/`closed_cn`. |
 | `generated_at` | string | yes | Human-readable timestamp with timezone. |
 | `subtitle` | string | no | Hero subtitle; renderer supplies default. |
 | `overview_lead` | string | full | One concise Chinese lead sentence, starting with verified sector winners/losers when sector data is available; rendered in bold. |
@@ -27,6 +28,10 @@ The renderer consumes UTF-8 JSON. Final payloads must not contain `TODO`, `TBD`,
 | `voices` | item[] | yes | 5–10 items. |
 | `next_watch` | item[] | yes | Sourced next-session items. |
 | `sources` | object | yes | `{label: url}` source index. |
+| `cn_sectors` | object | China full | `fixed_tech`, `top5`, `bottom5`, and `significant_tech_concepts`. |
+| `cn_watchlist` | object | China | Effective A-share sectors/stocks and configuration source: `builtin_default`, `local_override`, or `explicit_file`. |
+| `mover_filter` | object | China full | Market scope, BSE exclusion, ST/delisting rules, minimum listing days, and minimum amount. |
+| `us_watchlist` | object | U.S. full | Effective ordered U.S. stocks/sector proxies and source: `builtin_default`, `local_override`, or `explicit_file`. |
 
 ## Market row
 
@@ -54,6 +59,8 @@ The renderer consumes UTF-8 JSON. Final payloads must not contain `TODO`, `TBD`,
 ```
 
 Numbers may be `null` only when the row is deliberately retained to show a disclosed gap. Do not use zero for unknown values.
+
+For China rows, use `session_change`, `session_pct`, `first_time_local`, and `last_time_local` instead of the U.S.-specific `rth_*` and `*_time_et` fields. `day_pct` always means previous official close to target-date close. China raw bars use `time_local` with an explicit `+08:00` offset and must fall inside 09:30–11:30 or 13:00–15:00.
 
 Benchmark rows also include `kpi_label`, `kpi_basis`, and `is_proxy`. Always use the short labels `标普500` and `纳斯达克100`. Use `现金指数 · 前收至收盘` for SPX/NDX, or `SPY ETF代理 · 前收至收盘` / `QQQ ETF代理 · 前收至收盘` for fallback rows. Do not put proxy wording in `kpi_label`, and never place IXIC in this field.
 
@@ -158,3 +165,5 @@ The bundled TradingView fetcher writes:
 ```
 
 `series_files` can point to multiple retry/mover files. Later files override the same symbol key only when they contain a non-empty series.
+
+The Sina China adapter uses the same top-level `symbols` map, with `time_local` bars and `summary.day_change_pct`. It may also include `sectors`, `movers`, `mover_filter`, `watchlist`, `latest_market_date_seen`, and `warnings`. `watchlist` preserves the effective ordered sectors/stocks and its source without an absolute user path. A historical request must not reuse a later ranking/sector snapshot.

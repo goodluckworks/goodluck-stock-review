@@ -30,6 +30,7 @@ Review at approximately 1280–1440 px width:
 10. URLs/source labels are readable and not raw unbroken strings.
 11. Footer data notes, sources, gaps, and generated time are visible but lower-emphasis than body analysis; the disclaimer is not repeated there.
 12. Interpretive paragraphs such as benchmark-relative-strength and sector-structure commentary use normal text, not yellow framed callouts.
+13. With a user-local U.S. watchlist, section 04 shows every configured stock in saved order, the intraday comparison uses the first five, and section 06 shows every configured sector proxy. The built-in list keeps its existing labels and layout.
 
 ## Narrow/mobile pass
 
@@ -46,6 +47,20 @@ Review around 390–430 px width:
 ## Closed-market pass
 
 Confirm the page clearly says `今日美股休市，无需生成完整美股复盘` near the top. It must not visually imply that ES/NQ or stock RTH data exists. Only the global qualitative impact visual should appear.
+
+For `closed_cn`, confirm the page instead says `今日A股休市，无需生成完整A股复盘` and omits same-day index, leader, mover, and sector visuals.
+
+## A-share full-session pass
+
+Use the same desktop and mobile checks as the U.S. report, plus:
+
+1. The title is `A股每日盘后回顾` and the dark-blue hero, disclaimer, KPI cards, numbered sections, typography, spacing, and quiet footer match the U.S. visual system.
+2. The first three KPI cards are exactly `上证综指`, `创业板指`, and `科创50`, with no ETF proxy labels.
+3. Section 03 contains three real normalized intraday lines and visibly states Beijing time 09:30–11:30 and 13:00–15:00. The line breaks across the lunch gap and no synthetic lunch bars appear.
+4. With the built-in list, the ten default leader cards/table rows wrap cleanly and no Shenwan industry contributes more than three names. With a user-local list, all configured cards/rows appear in saved order and remain readable for the supported 1–20 stocks.
+5. Section 05 visibly states the restricted market universe and mover filters; no Beijing, ST, delisting, too-new, or below-threshold row appears.
+6. Section 06 contains all effective fixed industries (the built-in default is 电子、计算机、通信、传媒), five strongest and five weakest level-one industries, and significant technology concepts without overflowing on narrow screens.
+7. A full A-share report has the same five visual slots as the U.S. report, adapted to China-market content.
 
 ## Iteration rules
 

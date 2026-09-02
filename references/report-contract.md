@@ -1,6 +1,6 @@
 # Standing report contract
 
-This file is the complete durable contract for the user's recurring Chinese U.S. post-close report. Apply it to fresh runs, repairs, and backfills.
+This file is the complete durable contract for the user's recurring Chinese U.S. post-close report. Apply it to fresh runs, repairs, and backfills. The U.S. contract below is unchanged. For A-share requests, apply the additive market-specific contract in `cn-market-policy.md` while preserving the same visual system and evidence standards.
 
 ## 1. Execution time and report-date decision
 
@@ -60,7 +60,7 @@ Optional index futures data, when independently useful and available:
 - ES — E-mini S&P 500 futures.
 - NQ — E-mini Nasdaq 100 futures.
 
-Standing stocks:
+Built-in first-run standing stocks:
 
 - INTC
 - NVDA
@@ -70,6 +70,8 @@ Standing stocks:
 - SKHY
 - TSM
 - SPCX as `NASDAQ:SPCX` only when the public series resolves.
+
+The user may replace the standing stocks and sector ETF proxies with a persistent local default. Use the saved order, while SPX/NDX, SPY/QQQ fallback, RTH boundaries, macro assets, movers, and news rules remain fixed. A user-local list supports 1–20 verified stocks and 1–20 verified sector/index ETF proxies and is not investment advice.
 
 Optional/conditional assets:
 
@@ -191,9 +193,9 @@ Lead with the verified close-to-close day moves for the S&P 500 and Nasdaq-100 c
 
 ### 04. Focus stocks
 
-- table for all standing stocks with verified data;
+- table for all effective standing stocks with verified data;
 - RTH percent bar chart;
-- normalized intraday chart for INTC, NVDA, GOOG, MSFT, AAPL;
+- normalized intraday chart for INTC, NVDA, GOOG, MSFT, AAPL under the built-in list, or the first five saved stocks under a user-local list;
 - individual concise comments.
 
 ### 05. Large-move stocks

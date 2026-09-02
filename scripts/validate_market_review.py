@@ -13,6 +13,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
+from cn_watchlist import builtin_watchlist as builtin_cn_watchlist
+from us_watchlist import builtin_watchlist as builtin_us_watchlist
+
 
 WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
 PLACEHOLDERS = re.compile(r"\b(?:TODO|TBD|PLACEHOLDER)\b|待补充", re.I)
@@ -58,11 +61,18 @@ def load_series(paths: list[str]) -> dict[str, dict[str, Any]]:
         for key, obj in (data.get("symbols") or {}).items():
             if isinstance(obj, dict) and ((obj.get("bars") or []) or key not in merged):
                 merged[key] = obj
+        for obj in data.get("movers") or []:
+            if not isinstance(obj, dict):
+                continue
+            key = str(obj.get("key") or obj.get("symbol") or "")
+            if key and ((obj.get("bars") or []) or key not in merged):
+                merged[key] = obj
     return merged
 
 
 def validate_series(audit: dict[str, Any], failures: list[str]) -> dict[str, Any]:
     report_date = str(audit.get("report_date"))
+    is_cn = str(audit.get("market") or "us").lower() == "cn"
     paths = [str(path) for path in audit.get("used_series_files", [])]
     check(bool(paths), "full_rth_has_series_files", failures)
     check(all(Path(path).exists() for path in paths), "all_series_files_exist", failures)
@@ -83,19 +93,31 @@ def validate_series(audit: dict[str, Any], failures: list[str]) -> dict[str, Any
                 if row.get("close") is not None:
                     failures.append(f"bars_missing_for_row:{group}:{key}")
                 continue
-            stamps = [datetime.fromisoformat(str(bar["time_et"])) for bar in bars]
+            time_key = "time_local" if is_cn else "time_et"
+            stamps = [datetime.fromisoformat(str(bar[time_key])) for bar in bars]
             check(all(stamp.date().isoformat() == report_date for stamp in stamps), f"series_date:{key}", failures)
-            check(all(time(9, 30) <= stamp.time().replace(tzinfo=None) <= time(16, 0) for stamp in stamps), f"series_rth_window:{key}", failures)
+            if is_cn:
+                check(all(
+                    time(9, 30) <= stamp.time().replace(tzinfo=None) <= time(11, 30)
+                    or time(13, 0) <= stamp.time().replace(tzinfo=None) <= time(15, 0)
+                    for stamp in stamps
+                ), f"series_cn_session_window:{key}", failures)
+            else:
+                check(all(time(9, 30) <= stamp.time().replace(tzinfo=None) <= time(16, 0) for stamp in stamps), f"series_rth_window:{key}", failures)
             check(stamps == sorted(stamps), f"series_sorted:{key}", failures)
+            change_field = "session_change" if is_cn else "rth_change"
+            pct_field = "session_pct" if is_cn else "rth_pct"
+            first_field = "first_time_local" if is_cn else "first_time_et"
+            last_field = "last_time_local" if is_cn else "last_time_et"
             expected = {
                 "open": bars[0].get("open"), "high": max(bar.get("high") for bar in bars),
                 "low": min(bar.get("low") for bar in bars), "close": bars[-1].get("close"),
-                "rth_change": bars[-1].get("close") - bars[0].get("open"),
-                "rth_pct": (bars[-1].get("close") / bars[0].get("open") - 1) * 100,
-                "bar_count": len(bars), "first_time_et": bars[0].get("time_et"), "last_time_et": bars[-1].get("time_et"),
+                change_field: bars[-1].get("close") - bars[0].get("open"),
+                pct_field: (bars[-1].get("close") / bars[0].get("open") - 1) * 100,
+                "bar_count": len(bars), first_field: bars[0].get(time_key), last_field: bars[-1].get(time_key),
             }
             for field, value in expected.items():
-                if field.endswith("time_et"):
+                if field.endswith("time_et") or field.endswith("time_local"):
                     check(str(row.get(field)) == str(value), f"row_recompute:{key}:{field}", failures)
                 else:
                     check(approx(row.get(field), value), f"row_recompute:{key}:{field}", failures)
@@ -128,7 +150,10 @@ def main() -> int:
     except Exception:
         parse_ok = False
     report_date = date.fromisoformat(str(audit.get("report_date")))
-    title = f"美股每日盘后回顾 — {report_date.year}年{report_date.month}月{report_date.day}日（{WEEKDAYS[report_date.weekday()]}）"
+    market = str(audit.get("market") or "us").lower()
+    is_cn = market == "cn"
+    market_title = "A股每日盘后回顾" if is_cn else "美股每日盘后回顾"
+    title = f"{market_title} — {report_date.year}年{report_date.month}月{report_date.day}日（{WEEKDAYS[report_date.weekday()]}）"
     report_type = audit.get("report_type")
 
     check(parse_ok, "html_parse", failures)
@@ -163,7 +188,7 @@ def main() -> int:
     check(len(voices) in range(5, 11) or "人物" in gaps, "voices_count_5_10_or_gap", failures)
     check(bool(watches) or "日程" in gaps, "watch_present_or_gap", failures)
 
-    expected_sections = ["数据说明、来源与时效", "一句话市场总览", "影响美股的关键新闻", "过去 24 小时国际新闻大事", "重要人物发言与言论", "下一交易日关注", "数据来源与说明"]
+    expected_sections = ["数据说明、来源与时效", "一句话市场总览", "影响A股的关键新闻" if is_cn else "影响美股的关键新闻", "过去 24 小时国际新闻大事", "重要人物发言与言论", "下一交易日关注", "数据来源与说明"]
     check(all(section in html for section in expected_sections), "required_common_sections", failures)
     footer_pos = html.find('<footer class="section foot">')
     check(footer_pos >= 0 and html.find("数据说明、来源与时效", footer_pos) >= footer_pos, "data_notes_inside_footer", failures)
@@ -173,15 +198,80 @@ def main() -> int:
     check('<div class="notice">' not in footer_html, "footer_not_yellow_callout", failures)
 
     series_result: dict[str, Any] = {}
-    if report_type == "full_rth":
-        check("AAPL" in html, "AAPL_present", failures)
+    if report_type == "full_cn":
+        cn_watchlist = audit.get("cn_watchlist") if isinstance(audit.get("cn_watchlist"), dict) else builtin_cn_watchlist()
+        cn_watchlist_source = str(cn_watchlist.get("source") or "builtin_default")
+        cn_custom_watchlist = cn_watchlist_source != "builtin_default"
+        cn_stock_section_title = "核心关注个股表现" if cn_custom_watchlist else "核心科技龙头股表现"
+        cn_sector_section_title = "申万行业与关注板块结构" if cn_custom_watchlist else "申万行业与科技板块结构"
+        check(bool(str(audit.get("overview_lead") or "").strip()), "cn_overview_lead_present", failures)
+        check('<p class="overview-lead"><strong>' in html, "cn_overview_lead_bold", failures)
+        benchmark_start = html.find("上证综指 / 创业板指 / 科创50 日内走势分析")
+        benchmark_end = html.find(cn_stock_section_title)
+        benchmark_html = html[benchmark_start:benchmark_end] if 0 <= benchmark_start < benchmark_end else ""
+        structure_html = html[html.find(cn_sector_section_title):html.find("影响A股的关键新闻")]
+        check('<div class="notice">' not in benchmark_html, "cn_benchmark_analysis_not_yellow_callout", failures)
+        check('<div class="notice">' not in structure_html, "cn_structure_analysis_not_yellow_callout", failures)
+        benchmark_rows = [row for row in audit.get("rendered_benchmark_kpis", []) if isinstance(row, dict)]
+        tickers = {str(row.get("ticker")) for row in benchmark_rows}
+        check(tickers == {"SSE", "CHINEXT", "STAR50"}, "cn_three_cash_indexes", failures)
+        check(all(isinstance(row.get("day_pct"), (int, float)) for row in benchmark_rows), "cn_index_moves_verified", failures)
+        check("上证综指" in benchmark_html and "创业板指" in benchmark_html and "科创50" in benchmark_html, "cn_index_labels", failures)
+        check('data-chart="line"' in benchmark_html and 'data-series-count="3"' in benchmark_html, "cn_benchmark_chart_three_series", failures)
+        check("该图因数据不足未生成" not in benchmark_html, "cn_benchmark_chart_rendered", failures)
+        full_sections = ["核心 KPI", cn_stock_section_title, "当日大幅波动股票", cn_sector_section_title]
+        check(all(section in html for section in full_sections), "required_cn_full_sections", failures)
+        check("今日A股休市，无需生成完整A股复盘" not in html, "cn_full_not_closed_phrase", failures)
+        check(html.count('data-chart-slot="true"') == 5, "cn_full_visual_slots_5", failures)
+        check(html.count("<svg") + html.count("该图因数据不足未生成") == 5, "cn_visual_slots_resolved", failures)
+        core = [row for row in audit.get("key_stocks", []) if isinstance(row, dict)]
+        configured_stocks = [row for row in cn_watchlist.get("stocks", []) if isinstance(row, dict)]
+        expected_symbols = {str(row.get("symbol") or "") for row in configured_stocks}
+        actual_symbols = {str(row.get("key") or "") for row in core}
+        check(1 <= len(configured_stocks) <= 20, "cn_watchlist_stock_count_1_20", failures)
+        check(len(core) == len(configured_stocks), "cn_core_matches_watchlist_count", failures)
+        check(actual_symbols == expected_symbols, "cn_core_matches_watchlist_symbols", failures)
+        if not cn_custom_watchlist:
+            sector_counts: dict[str, int] = {}
+            for row in core:
+                sector = str(row.get("sector") or "")
+                sector_counts[sector] = sector_counts.get(sector, 0) + 1
+            check(len(core) == 10, "cn_builtin_core_stocks_10", failures)
+            check(all(count <= 3 for count in sector_counts.values()), "cn_builtin_core_max_three_per_sector", failures)
+        movers = [row for row in audit.get("movers", []) if isinstance(row, dict)]
+        filters = audit.get("mover_filter") or {}
+        min_amount = float(filters.get("min_amount_cny") or 0)
+        min_days = int(filters.get("min_listing_days") or 0)
+        check(filters.get("exclude_bse") is True, "cn_movers_exclude_bse_config", failures)
+        check(all(not str(row.get("key") or "").startswith("bj") for row in movers), "cn_movers_no_bse", failures)
+        check(all(not re.search(r"(?:\*?ST|退市|退)", str(row.get("name") or ""), re.I) for row in movers), "cn_movers_no_st_delisting", failures)
+        check(all(float(row.get("amount") or 0) >= min_amount for row in movers), "cn_movers_min_amount", failures)
+        check(all(int(row.get("listing_days_observed") or 0) >= min_days for row in movers), "cn_movers_min_listing_days", failures)
+        check(len(movers) == 10 or "movers only" in gaps or "historical mover" in gaps.lower(), "cn_movers_10_or_gap", failures)
+        cn_sectors = audit.get("cn_sectors") or {}
+        fixed_names = {str(row.get("name")) for row in cn_sectors.get("fixed_tech", []) if isinstance(row, dict)}
+        configured_sectors = {str(value) for value in cn_watchlist.get("sectors", []) if str(value).strip()}
+        check(1 <= len(configured_sectors) <= 8, "cn_watchlist_sector_count_1_8", failures)
+        check(fixed_names == configured_sectors, "cn_fixed_sectors_match_watchlist", failures)
+        check(len(cn_sectors.get("top5", [])) == 5, "cn_sector_top5", failures)
+        check(len(cn_sectors.get("bottom5", [])) == 5, "cn_sector_bottom5", failures)
+        check("北京时间09:30–11:30、13:00–15:00" in html, "cn_session_text", failures)
+        series_result = validate_series(audit, failures)
+    elif report_type == "full_rth":
+        us_watchlist = audit.get("us_watchlist") if isinstance(audit.get("us_watchlist"), dict) else builtin_us_watchlist()
+        us_watchlist_source = str(us_watchlist.get("source") or "builtin_default")
+        us_custom_watchlist = us_watchlist_source != "builtin_default"
+        us_stock_section_title = "重点关注股 RTH 表现" if us_custom_watchlist else "重点科技股 RTH 表现"
+        us_sector_section_title = "关注板块与市场结构" if us_custom_watchlist else "板块与市场结构"
+        if not us_custom_watchlist:
+            check("AAPL" in html, "AAPL_present", failures)
         check(bool(str(audit.get("overview_lead") or "").strip()), "full_overview_lead_present", failures)
         check('<p class="overview-lead"><strong>' in html, "full_overview_lead_bold", failures)
         benchmark_section_start = html.find("标普500 / 纳斯达克100 RTH 走势分析")
-        benchmark_section_end = html.find("重点科技股 RTH 表现")
+        benchmark_section_end = html.find(us_stock_section_title)
         benchmark_section_html = html[benchmark_section_start:benchmark_section_end] if 0 <= benchmark_section_start < benchmark_section_end else ""
         check('<div class="notice">' not in benchmark_section_html, "benchmark_analysis_not_yellow_callout", failures)
-        check('<div class="notice">' not in html[html.find("板块与市场结构"):html.find("影响美股的关键新闻")], "structure_analysis_not_yellow_callout", failures)
+        check('<div class="notice">' not in html[html.find(us_sector_section_title):html.find("影响美股的关键新闻")], "structure_analysis_not_yellow_callout", failures)
         kpi_start, kpi_end = html.find("核心 KPI"), benchmark_section_start
         kpi_html = html[kpi_start:kpi_end] if 0 <= kpi_start < kpi_end else ""
         overview_start = html.find("一句话市场总览")
@@ -204,23 +294,31 @@ def main() -> int:
         check('data-chart="line"' in benchmark_section_html and 'data-series-count="2"' in benchmark_section_html, "benchmark_trend_chart_two_series", failures)
         check("该图因数据不足未生成" not in benchmark_section_html, "benchmark_trend_chart_rendered", failures)
         check("ES / NQ RTH 走势分析" not in html, "legacy_futures_section_removed", failures)
-        full_sections = ["核心 KPI", "标普500 / 纳斯达克100 RTH 走势分析", "重点科技股 RTH 表现", "当日大幅波动股票", "板块与市场结构"]
+        full_sections = ["核心 KPI", "标普500 / 纳斯达克100 RTH 走势分析", us_stock_section_title, "当日大幅波动股票", us_sector_section_title]
         check(all(section in html for section in full_sections), "required_full_sections", failures)
         check("今日美股休市，无需生成完整美股复盘" not in html, "full_not_closed_phrase", failures)
         check(html.count('data-chart-slot="true"') == 5, "full_visual_slots_5", failures)
         check(html.count("<svg") + html.count("该图因数据不足未生成") == 5, "full_visual_slots_resolved", failures)
         tickers = {str(row.get("ticker")) for row in audit.get("key_stocks", []) if isinstance(row, dict)}
-        check({"INTC", "NVDA", "GOOG", "MSFT", "AAPL", "SKHY", "TSM"}.issubset(tickers), "required_core_stocks", failures)
+        configured_stock_tickers = {str(row.get("ticker")) for row in us_watchlist.get("stocks", []) if isinstance(row, dict)}
+        configured_sector_tickers = {str(row.get("ticker")) for row in us_watchlist.get("sectors", []) if isinstance(row, dict)}
+        rendered_sector_tickers = {str(row.get("ticker")) for row in audit.get("sectors", []) if isinstance(row, dict)}
+        check(1 <= len(configured_stock_tickers) <= 20, "us_watchlist_stock_count_1_20", failures)
+        check(1 <= len(configured_sector_tickers) <= 20, "us_watchlist_sector_count_1_20", failures)
+        check(tickers == configured_stock_tickers, "us_core_matches_watchlist_tickers", failures)
+        check(rendered_sector_tickers == configured_sector_tickers, "us_sectors_match_watchlist_tickers", failures)
+        if not us_custom_watchlist:
+            check({"INTC", "NVDA", "GOOG", "MSFT", "AAPL", "SKHY", "TSM"}.issubset(tickers), "required_core_stocks", failures)
         check(len(audit.get("movers", [])) in range(8, 16) or "波动股" in gaps, "mover_count_8_15_or_gap", failures)
         check("美东 09:30–16:00" in html, "strict_rth_text", failures)
         series_result = validate_series(audit, failures)
-    elif report_type == "closed_market":
-        phrase = "今日美股休市，无需生成完整美股复盘"
+    elif report_type in {"closed_market", "closed_cn"}:
+        phrase = "今日A股休市，无需生成完整A股复盘" if report_type == "closed_cn" else "今日美股休市，无需生成完整美股复盘"
         check(phrase in html, "closed_phrase", failures)
-        check("标普500 / 纳斯达克100 RTH 走势分析" not in html, "closed_no_benchmark_rth_section", failures)
+        check("标普500 / 纳斯达克100 RTH 走势分析" not in html and "上证综指 / 创业板指 / 科创50 日内走势分析" not in html, "closed_no_benchmark_section", failures)
         check("当日大幅波动股票" not in html, "closed_no_movers_section", failures)
         check(html.count('data-chart-slot="true"') == 1, "closed_visual_slots_1", failures)
-        check(not audit.get("futures") and not audit.get("key_stocks") and not audit.get("movers"), "closed_no_rth_payload", failures)
+        check(not audit.get("futures") and not audit.get("key_stocks") and not audit.get("movers"), "closed_no_session_payload", failures)
     else:
         failures.append("valid_report_type")
 

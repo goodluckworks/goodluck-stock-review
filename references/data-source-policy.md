@@ -1,5 +1,7 @@
 # Data and source policy
 
+This file defines the unchanged U.S. source policy. For A-share requests, also apply `cn-market-policy.md`; never substitute China-market rules into a U.S. run or vice versa.
+
 ## 1. Date gate
 
 1. Convert the execution instant to `America/New_York`.
@@ -49,6 +51,8 @@ Five-minute expected coverage is usually 79 bars for ES/NQ and some macro series
 | Gold | `COMEX:GC1!` | Continuous futures. |
 
 Sector structure can use liquid ETF proxies such as SPY, QQQ, DIA, IWM, XLK, SOXX/SMH, XLF, XLE, XLV, XLY, XLP, XLI, XLU, XLC, XLB, XLRE. Verify the exact symbol and disclose proxy use.
+
+These stocks and sector proxies form the built-in first-run list. A verified user-local list may replace them, but it must preserve ticker/name/TradingView mapping and cannot replace the fixed SPX/NDX plus SPY/QQQ benchmark pair. Store the effective list and source in raw data, payload, and audit JSON without exposing an absolute home path.
 
 For shareable KPI cards and the section-03 comparison chart, always use the fixed benchmark pair SPX and NDX. When they are unavailable, SPY and QQQ provide their matching fallbacks. Card titles remain `标普500` and `纳斯达克100`; the basis line must say `SPY ETF代理` or `QQQ ETF代理`, and the table exposes the actual ticker. Do not substitute ES/NQ or the Nasdaq Composite/IXIC. Fetch SPY and QQQ alongside SPX and NDX so the fallback is available without a second recovery run. A final full report requires two real benchmark series for the comparison chart.
 

@@ -22,6 +22,8 @@ from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
+from us_watchlist import load_watchlist, public_metadata
+
 
 TRADINGVIEW_WS = "wss://data.tradingview.com/socket.io/websocket?from=chart/local/"
 NY = ZoneInfo("America/New_York")
@@ -269,18 +271,41 @@ def main() -> int:
     parser.add_argument("--resolution", default="5")
     parser.add_argument("--countback", type=int, default=1200)
     parser.add_argument("--timeout", type=float, default=30.0)
-    parser.add_argument("--symbols", nargs="*", default=list(SYMBOLS))
+    parser.add_argument("--symbols", nargs="*", help="Explicit base keys/symbols; omit to keep the legacy all-symbol default")
+    parser.add_argument("--watchlist-part", choices=["stocks", "sectors", "all"], help="Append the effective local watchlist group")
+    parser.add_argument("--watchlist-config", help="Optional one-run watchlist JSON; otherwise use the user-local default")
     args = parser.parse_args()
+    try:
+        watchlist = load_watchlist(args.watchlist_config)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        parser.error(str(exc))
+    configured_items = [
+        row for group in ("stocks", "sectors") for row in watchlist[group]
+        if isinstance(row, dict)
+    ]
+    configured_symbols = {str(row["ticker"]): str(row["tradingview_symbol"]) for row in configured_items}
+    if args.symbols is None:
+        requested = [] if args.watchlist_part else list(SYMBOLS)
+    else:
+        requested = list(args.symbols)
+    if args.watchlist_part:
+        groups = ("stocks", "sectors") if args.watchlist_part == "all" else (args.watchlist_part,)
+        for group in groups:
+            for row in watchlist[group]:
+                ticker = str(row["ticker"])
+                if ticker not in requested:
+                    requested.append(ticker)
 
     result: dict[str, Any] = {
         "source": "TradingView anonymous chart websocket", "source_url": "https://www.tradingview.com/",
         "source_status": "public aggregated chart data; not exchange-certified", "resolution": args.resolution,
         "session": "regular", "rth_window_et": "09:30-16:00", "report_date": args.date,
         "generated_at": datetime.now().astimezone().isoformat(), "symbols": {},
+        "us_watchlist": public_metadata(watchlist),
     }
     all_ok = True
-    for key in args.symbols:
-        symbol = SYMBOLS.get(key, key)
+    for key in requested:
+        symbol = configured_symbols.get(key, SYMBOLS.get(key, key))
         try:
             raw = fetch_symbol(symbol, args.resolution, args.countback, args.timeout)
             rth = filter_rth_day(raw, args.date)
@@ -293,7 +318,10 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(output)
-    print(json.dumps({key: value.get("summary") for key, value in result["symbols"].items()}, ensure_ascii=False, indent=2))
+    print(json.dumps({
+        "watchlist_source": watchlist["source"],
+        "symbols": {key: value.get("summary") for key, value in result["symbols"].items()},
+    }, ensure_ascii=False, indent=2))
     return 0 if all_ok else 2
 
 

@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from us_watchlist import load_watchlist, public_metadata
+
 
 CORE = {
     "SPX": ("SPX", "S&P 500 cash index"),
@@ -47,14 +49,14 @@ def load(path: str | None) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def symbol_rows(dataset: dict[str, Any], only: set[str] | None = None) -> list[dict[str, Any]]:
+def symbol_rows(dataset: dict[str, Any], only: set[str] | None = None, names: dict[str, tuple[str, str]] | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for key, obj in (dataset.get("symbols") or {}).items():
         if only is not None and key not in only:
             continue
         summary = (obj or {}).get("summary") or {}
         tv_symbol = (obj or {}).get("tradingview_symbol", key)
-        ticker, name = CORE.get(key) or NAMES.get(key) or NAMES.get(tv_symbol) or (key.split(":")[-1], key)
+        ticker, name = (names or {}).get(key) or CORE.get(key) or NAMES.get(key) or NAMES.get(tv_symbol) or (key.split(":")[-1], key)
         rows.append({
             "key": key, "ticker": ticker, "name": name,
             "open": summary.get("open"), "high": summary.get("high"), "low": summary.get("low"),
@@ -66,6 +68,20 @@ def symbol_rows(dataset: dict[str, Any], only: set[str] | None = None) -> list[d
             "comment": "TODO: 根据真实日内走势与可核验消息填写。",
             "source": "https://www.tradingview.com/",
         })
+    return rows
+
+
+def watchlist_rows(dataset: dict[str, Any], items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    names = {
+        str(row.get("ticker") or ""): (str(row.get("ticker") or ""), str(row.get("name") or row.get("ticker") or ""))
+        for row in items if isinstance(row, dict)
+    }
+    rows: list[dict[str, Any]] = []
+    for row in items:
+        if not isinstance(row, dict):
+            continue
+        ticker = str(row.get("ticker") or "")
+        rows.extend(symbol_rows(dataset, {ticker}, names))
     return rows
 
 
@@ -143,14 +159,18 @@ def main() -> int:
             parser.error("--core is required for full_rth")
         core = load(args.core)
         sector = load(args.sector)
+        us_watchlist = core.get("us_watchlist") or sector.get("us_watchlist") or public_metadata(load_watchlist())
+        watch_stocks = [row for row in us_watchlist.get("stocks", []) if isinstance(row, dict)]
+        watch_sectors = [row for row in us_watchlist.get("sectors", []) if isinstance(row, dict)]
         payload.update({
             "series_files": {"core": args.core, "benchmark": args.benchmark, "sector": args.sector, "macro": args.macro, "movers": args.movers},
             "benchmark_kpis": benchmark_rows(load(args.benchmark), sector),
             "futures": symbol_rows(core, {"ES", "NQ"}),
-            "key_stocks": symbol_rows(core, {"INTC", "NVDA", "GOOG", "MSFT", "AAPL", "SKHY", "TSM", "SPCX"}),
-            "sectors": symbol_rows(sector),
+            "key_stocks": watchlist_rows(core, watch_stocks),
+            "sectors": watchlist_rows(sector, watch_sectors),
             "macro": symbol_rows(load(args.macro)),
             "movers": merge_movers(args.movers),
+            "us_watchlist": us_watchlist,
         })
     else:
         payload["overview_lead"] = ""

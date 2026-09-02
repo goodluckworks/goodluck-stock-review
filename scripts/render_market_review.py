@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the standalone Chinese U.S. market review HTML and audit JSON."""
+"""Render standalone Chinese U.S. or China A-share review HTML and audit JSON."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import hashlib
 import json
 import math
 import re
-from datetime import date
+from datetime import date, datetime
 from html import escape
 from pathlib import Path
 from typing import Any, Iterable
@@ -65,6 +65,12 @@ def load_series(payload: dict[str, Any], input_path: Path) -> tuple[dict[str, di
                 bars = obj.get("bars") or []
                 if bars or key not in merged:
                     merged[key] = obj
+            for obj in data.get("movers") or []:
+                if not isinstance(obj, dict):
+                    continue
+                key = str(obj.get("key") or obj.get("symbol") or "")
+                if key and ((obj.get("bars") or []) or key not in merged):
+                    merged[key] = obj
     return merged, used
 
 
@@ -109,7 +115,13 @@ def move_text(row: dict[str, Any], period: str) -> str:
     if row.get("ticker") == "US10Y":
         value = row.get("rth_change" if period == "rth" else "day_change")
         return "未核验" if value is None else f"{float(value) * 100:+.1f}bp"
-    return pct(row.get("rth_pct" if period == "rth" else "day_pct"))
+    if period == "rth":
+        return pct(row.get("session_pct", row.get("rth_pct")))
+    return pct(row.get("day_pct"))
+
+
+def session_value(row: dict[str, Any], field: str) -> Any:
+    return row.get(f"session_{field}", row.get(f"rth_{field}"))
 
 
 def benchmark_kpi_rows(payload: dict[str, Any], sectors: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -163,10 +175,10 @@ def empty_chart(title: str, subtitle: str) -> str:
     return f'<figure class="chart-card" data-chart-slot="true" data-chart-status="missing"><figcaption><strong>{h(title)}</strong><span>{h(subtitle)}</span></figcaption><div class="empty-chart">该图因数据不足未生成</div></figure>'
 
 
-def line_chart(series_rows: list[tuple[str, list[dict[str, Any]]]], title: str, subtitle: str) -> str:
+def line_chart(series_rows: list[tuple[str, list[dict[str, Any]]]], title: str, subtitle: str, axis_label: str = "美东时间") -> str:
     series_data: list[tuple[str, list[tuple[str, float]]]] = []
     for label, bars in series_rows:
-        closes = [(str(bar.get("time_et", ""))[11:16], bar.get("close")) for bar in bars if isinstance(bar.get("close"), (int, float))]
+        closes = [(str(bar.get("time_local") or bar.get("time_et") or ""), bar.get("close")) for bar in bars if isinstance(bar.get("close"), (int, float))]
         if not closes or not closes[0][1]:
             continue
         first = float(closes[0][1])
@@ -201,17 +213,27 @@ def line_chart(series_rows: list[tuple[str, list[dict[str, Any]]]], title: str, 
     sample_times = series_data[0][1]
     for index in sorted(set(round(i * (len(sample_times) - 1) / 5) for i in range(6))):
         xpos = x(index, len(sample_times))
-        svg.append(f'<text x="{xpos:.1f}" y="{height-24}" text-anchor="middle" fill="#667085" font-size="11">{h(sample_times[index][0])}</text>')
+        svg.append(f'<text x="{xpos:.1f}" y="{height-24}" text-anchor="middle" fill="#667085" font-size="11">{h(sample_times[index][0][11:16])}</text>')
     for idx, (label, points) in enumerate(series_data):
         color = COLORS[idx % len(COLORS)]
-        path = " ".join(("M" if i == 0 else "L") + f"{x(i, len(points)):.1f},{y(value):.1f}" for i, (_, value) in enumerate(points))
+        commands: list[str] = []
+        previous_stamp: datetime | None = None
+        for i, (stamp, value) in enumerate(points):
+            try:
+                current_stamp = datetime.fromisoformat(stamp)
+            except ValueError:
+                current_stamp = None
+            break_line = previous_stamp is not None and current_stamp is not None and (current_stamp - previous_stamp).total_seconds() > 30 * 60
+            commands.append(("M" if i == 0 or break_line else "L") + f"{x(i, len(points)):.1f},{y(value):.1f}")
+            previous_stamp = current_stamp
+        path = " ".join(commands)
         svg.append(f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2.4" vector-effect="non-scaling-stroke"/>')
         legend_x = left + (idx % 5) * 160
         legend_y = 28 + (idx // 5) * 24
         svg.append(f'<line x1="{legend_x}" y1="{legend_y}" x2="{legend_x+22}" y2="{legend_y}" stroke="{color}" stroke-width="4"/>')
         svg.append(f'<text x="{legend_x+29}" y="{legend_y+4}" fill="#344054" font-size="12">{h(label)}</text>')
     svg.append(f'<text x="18" y="{top-12}" fill="#667085" font-size="11">涨跌幅</text>')
-    svg.append(f'<text x="{width-right}" y="{height-7}" text-anchor="end" fill="#667085" font-size="11">美东时间</text></svg>')
+    svg.append(f'<text x="{width-right}" y="{height-7}" text-anchor="end" fill="#667085" font-size="11">{h(axis_label)}</text></svg>')
     return f'<figure class="chart-card" data-chart-slot="true" data-chart="line" data-series-count="{len(series_data)}"><figcaption><strong>{h(title)}</strong><span>{h(subtitle)}</span></figcaption>{"".join(svg)}</figure>'
 
 
@@ -252,7 +274,7 @@ def market_rows(rows: list[dict[str, Any]]) -> str:
     return "".join(
         f'<tr><td><strong>{h(row.get("ticker"))}</strong><small>{h(row.get("name"))}</small></td>'
         f'<td>{number(row.get("open"))}</td><td>{number(row.get("high"))}</td><td>{number(row.get("low"))}</td><td>{number(row.get("close"))}</td>'
-        f'<td class="{cls(row.get("rth_pct"))}">{number(row.get("rth_change"))}<small>{pct(row.get("rth_pct"))}</small></td>'
+        f'<td class="{cls(session_value(row, "pct"))}">{number(session_value(row, "change"))}<small>{pct(session_value(row, "pct"))}</small></td>'
         f'<td class="{cls(row.get("day_pct"))}">{pct(row.get("day_pct"))}</td><td>{volume(row.get("volume"))}</td><td>{h(row.get("bar_count") if row.get("bar_count") is not None else "缺失")}</td></tr>'
         for row in rows
     )
@@ -262,6 +284,27 @@ def compact_rows(rows: list[dict[str, Any]]) -> str:
     return "".join(
         f'<tr><td><strong>{h(row.get("ticker"))}</strong><small>{h(row.get("name"))}</small></td>'
         f'<td class="{cls(row.get("rth_pct"))}">{move_text(row, "rth")}</td><td class="{cls(row.get("day_pct"))}">{move_text(row, "day")}</td><td>{number(row.get("close"), 3 if row.get("ticker") == "US10Y" else 2)}</td></tr>'
+        for row in rows
+    )
+
+
+def cny_amount(value: Any) -> str:
+    if value is None:
+        return "未提供"
+    amount = float(value)
+    if amount >= 1e8:
+        return f"{amount / 1e8:,.1f}亿元"
+    if amount >= 1e4:
+        return f"{amount / 1e4:,.1f}万元"
+    return f"{amount:,.0f}元"
+
+
+def cn_sector_rows(rows: list[dict[str, Any]]) -> str:
+    return "".join(
+        f'<tr><td><strong>{h(row.get("name"))}</strong><small>{h(row.get("key"))}</small></td>'
+        f'<td class="{cls(row.get("day_pct"))}">{pct(row.get("day_pct"))}</td>'
+        f'<td>{h(row.get("constituent_count") if row.get("constituent_count") is not None else "未提供")}</td>'
+        f'<td>{cny_amount(row.get("amount"))}</td><td>{h(row.get("leader_name"))}<small>{pct(row.get("leader_pct"))}</small></td></tr>'
         for row in rows
     )
 
@@ -301,7 +344,11 @@ def source_index(payload: dict[str, Any], groups: Iterable[list[dict[str, Any]]]
 
 def build_html(payload: dict[str, Any], input_path: Path, css: str) -> tuple[str, dict[str, Any]]:
     report_date = date.fromisoformat(str(payload["report_date"]))
-    title = f"美股每日盘后回顾 — {report_date.year}年{report_date.month}月{report_date.day}日（{WEEKDAYS[report_date.weekday()]}）"
+    market = str(payload.get("market") or "us").lower()
+    is_cn = market == "cn"
+    render_css = css + ("\n.cn-report .notice { padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); }\n.split > * { min-width: 0; }" if is_cn else "")
+    market_title = "A股每日盘后回顾" if is_cn else "美股每日盘后回顾"
+    title = f"{market_title} — {report_date.year}年{report_date.month}月{report_date.day}日（{WEEKDAYS[report_date.weekday()]}）"
     report_type = payload.get("report_type")
     series, used_series_files = load_series(payload, input_path)
     futures = [row for row in payload.get("futures", []) if isinstance(row, dict)]
@@ -318,6 +365,19 @@ def build_html(payload: dict[str, Any], input_path: Path, css: str) -> tuple[str
     generated_at = str(payload.get("generated_at", "未核验"))
     overview_lead = str(payload.get("overview_lead") or "").strip()
     rendered_benchmarks: list[dict[str, Any]] = []
+    cn_watchlist = payload.get("cn_watchlist") if isinstance(payload.get("cn_watchlist"), dict) else {}
+    cn_watchlist_source = str(cn_watchlist.get("source") or "builtin_default")
+    cn_custom_watchlist = is_cn and cn_watchlist_source != "builtin_default"
+    cn_watch_sectors = [str(value) for value in cn_watchlist.get("sectors", []) if str(value).strip()]
+    cn_watchlist_kind = "用户本地默认" if cn_watchlist_source == "local_override" else "本次自定义"
+    cn_stock_section_title = "核心关注个股表现" if cn_custom_watchlist else "核心科技龙头股表现"
+    cn_sector_section_title = "申万行业与关注板块结构" if cn_custom_watchlist else "申万行业与科技板块结构"
+    us_watchlist = payload.get("us_watchlist") if isinstance(payload.get("us_watchlist"), dict) else {}
+    us_watchlist_source = str(us_watchlist.get("source") or "builtin_default")
+    us_custom_watchlist = not is_cn and us_watchlist_source != "builtin_default"
+    us_watchlist_kind = "用户本地默认" if us_watchlist_source == "local_override" else "本次自定义"
+    us_stock_section_title = "重点关注股 RTH 表现" if us_custom_watchlist else "重点科技股 RTH 表现"
+    us_sector_section_title = "关注板块与市场结构" if us_custom_watchlist else "板块与市场结构"
 
     market_news_html = "".join(
         f'<article class="news-item"><div class="news-index">{index:02d}</div><div><h3>{h(item.get("title"))}</h3>'
@@ -354,16 +414,99 @@ def build_html(payload: dict[str, Any], input_path: Path, css: str) -> tuple[str
     gaps_html = "" if not data_gaps else '<h3>数据缺口/人工复核</h3><ul class="data-gaps">' + "".join(f"<li>{h(gap)}</li>" for gap in data_gaps) + "</ul>"
     overview_lead_html = f'<p class="overview-lead"><strong>{h(overview_lead)}</strong></p>' if overview_lead else ""
 
-    subtitle = payload.get("subtitle") or ("RTH 时段走势 · 重点期货 · 重点科技股 · 大幅波动股 · 市场新闻 · 国际要闻" if report_type == "full_rth" else "休市/未完成 RTH 分支 · 市场新闻 · 过去24小时国际要闻")
+    if is_cn:
+        if report_type == "full_cn" and cn_custom_watchlist:
+            subtitle_default = "三大指数 · 自选板块与个股 · 申万行业与科技概念 · 大幅波动股 · 市场新闻 · 国际要闻"
+        else:
+            subtitle_default = "三大指数 · 科技龙头 · 申万行业与科技概念 · 大幅波动股 · 市场新闻 · 国际要闻" if report_type == "full_cn" else "休市/未完成交易分支 · 市场新闻 · 过去24小时国际要闻"
+        eyebrow = "A-SHARE MARKET · POST-CLOSE RESEARCH"
+        page_class = "page cn-report"
+    else:
+        if report_type == "full_rth" and us_custom_watchlist:
+            subtitle_default = "RTH 时段走势 · 自选板块与个股 · 大幅波动股 · 市场新闻 · 国际要闻"
+        else:
+            subtitle_default = "RTH 时段走势 · 重点期货 · 重点科技股 · 大幅波动股 · 市场新闻 · 国际要闻" if report_type == "full_rth" else "休市/未完成 RTH 分支 · 市场新闻 · 过去24小时国际要闻"
+        eyebrow = "U.S. MARKET · POST-CLOSE RESEARCH"
+        page_class = "page"
+    subtitle = payload.get("subtitle") or subtitle_default
     parts = [
         '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
-        f'<title>{h(title)}</title><style>{css}</style></head><body><main class="page">',
-        f'<header class="hero"><div class="eyebrow">U.S. MARKET · POST-CLOSE RESEARCH</div><h1>{h(title)}</h1><p>{h(subtitle)}</p>',
+        f'<title>{h(title)}</title><style>{render_css}</style></head><body><main class="{page_class}">',
+        f'<header class="hero"><div class="eyebrow">{h(eyebrow)}</div><h1>{h(title)}</h1><p>{h(subtitle)}</p>',
         '<div class="hero-disclaimer"><strong>免责声明：</strong>本报告仅用于个人市场复盘与研究，不构成任何投资建议。市场数据可能存在延迟或口径差异，请以交易所、经纪商及官方公告为准。</div></header>',
         f'<section class="section">{section_head("01", "一句话市场总览", "Answer first")}<div class="answer">{overview_lead_html}<p class="overview-body">{h(payload.get("overview"))}</p></div></section>',
     ]
 
-    if report_type == "full_rth":
+    if report_type == "full_cn":
+        rendered_benchmarks = [
+            row for row in payload.get("benchmark_kpis", [])
+            if isinstance(row, dict) and row.get("ticker") in {"SSE", "CHINEXT", "STAR50"} and isinstance(row.get("day_pct"), (int, float))
+        ]
+        labels = {"SSE": "上证综指", "CHINEXT": "创业板指", "STAR50": "科创50"}
+        for row in rendered_benchmarks:
+            row.setdefault("kpi_label", labels.get(str(row.get("ticker")), str(row.get("name") or row.get("ticker"))))
+            row.setdefault("kpi_basis", "现金指数 · 前收至收盘")
+        benchmark_cards = "".join(
+            f'<article class="kpi benchmark-kpi {cls(row.get("day_pct"))}"><span>{h(row.get("kpi_label"))}</span>'
+            f'<strong>{pct(row.get("day_pct"))}</strong><small>{h(row.get("kpi_basis"))}</small></article>'
+            for row in rendered_benchmarks
+        )
+        stock_cards = "".join(
+            f'<article class="kpi {cls(row.get("day_pct"))}"><span>{h(row.get("name"))}</span><strong>{pct(row.get("day_pct"))}</strong>'
+            f'<small>{h(row.get("ticker"))} · 前收至收盘</small></article>'
+            for row in stocks if isinstance(row.get("day_pct"), (int, float))
+        )
+        benchmark_chart = line_chart(
+            [(str(row.get("kpi_label")), row_series(series, row)) for row in rendered_benchmarks],
+            "上证综指 / 创业板指 / 科创50 日内归一化走势",
+            "现金指数；首根5分钟收盘归一化为0%；午间休市不连接或插值",
+            "北京时间",
+        )
+        stock_chart = line_chart(
+            [(str(row.get("name") or row.get("ticker")), row_series(series, row)) for row in stocks],
+            "核心关注个股日内归一化走势" if cn_custom_watchlist else "核心科技龙头日内归一化走势",
+            f"{cn_watchlist_kind}名单，共{len(stocks)}只；真实5分钟收盘条" if cn_custom_watchlist else "默认十只龙头；真实5分钟收盘条",
+            "北京时间",
+        )
+        key_bar = bar_chart(
+            [(str(row.get("name") or row.get("ticker")), row.get("day_pct")) for row in stocks],
+            "核心关注个股当日涨跌幅" if cn_custom_watchlist else "核心科技龙头当日涨跌幅",
+            "前一交易日收盘至当日15:00收盘",
+        )
+        mover_bar = bar_chart([(str(row.get("name") or row.get("ticker")), row.get("day_pct")) for row in movers], "当日大幅波动股票涨跌幅", "已排除北交所、ST、退市整理、新股与低成交额样本")
+        mover_rows = "".join(
+            f'<tr><td><strong>{h(row.get("ticker"))}</strong><small>{h(row.get("name"))}</small></td><td>{number(row.get("close"))}</td>'
+            f'<td class="{cls(row.get("day_pct"))}">{pct(row.get("day_pct"))}</td><td>{cny_amount(row.get("amount"))}</td>'
+            f'<td><span class="tag">{h(row.get("category"))}</span></td><td>{h(row.get("driver"))}<small>{link(row.get("source"), "驱动来源")}</small></td></tr>'
+            for row in movers
+        )
+        stock_comments = "".join(f'<li><strong>{h(row.get("name"))}（{h(row.get("ticker"))}）：</strong>{h(row.get("comment") or "日内走势描述待核验。")}</li>' for row in stocks)
+        cn_sectors = payload.get("cn_sectors") or {}
+        fixed_tech = [row for row in cn_sectors.get("fixed_tech", []) if isinstance(row, dict)]
+        top5 = [row for row in cn_sectors.get("top5", []) if isinstance(row, dict)]
+        bottom5 = [row for row in cn_sectors.get("bottom5", []) if isinstance(row, dict)]
+        concepts = [row for row in cn_sectors.get("significant_tech_concepts", []) if isinstance(row, dict)]
+        sector_header = '<thead><tr><th>行业/概念</th><th>当日涨跌</th><th>成分数</th><th>成交额</th><th>领涨股</th></tr></thead>'
+        stock_section_note = (
+            f"{cn_watchlist_kind}名单，共{len(stocks)}只；生成时按代码获取行情，名称和行业按已保存配置展示"
+            if cn_custom_watchlist else "默认名单按近期趋势与行业市值筛选，每个申万一级行业最多3只"
+        )
+        kpi_note = "三大现金指数与本地默认关注个股均显示前收至收盘涨跌" if cn_custom_watchlist else "三大现金指数与默认核心科技龙头均显示前收至收盘涨跌"
+        sector_names_text = "、".join(cn_watch_sectors) or "未配置"
+        sector_note = (
+            f"固定跟踪{sector_names_text}；另列申万一级涨幅前五、跌幅前五及显著科技概念"
+            if cn_custom_watchlist else "固定跟踪电子、计算机、通信、传媒；另列申万一级涨幅前五、跌幅前五及显著科技概念"
+        )
+        fixed_sector_heading = "固定关注行业" if cn_custom_watchlist else "固定科技行业"
+        parts.extend([
+            f'<section class="section">{section_head("02", "核心 KPI", kpi_note)}<div class="kpi-grid">{benchmark_cards}{stock_cards}</div></section>',
+            f'<section class="section">{section_head("03", "上证综指 / 创业板指 / 科创50 日内走势分析", "北京时间09:30–11:30、13:00–15:00；午间休市分段处理")}<div class="table-wrap"><table><thead><tr><th>指数</th><th>开盘</th><th>最高</th><th>最低</th><th>收盘</th><th>日内涨跌</th><th>前收至收盘</th><th>成交量</th><th>5m条数</th></tr></thead><tbody>{market_rows(rendered_benchmarks)}</tbody></table></div><div class="chart-grid">{benchmark_chart}</div><p class="analysis-copy">{h(payload.get("benchmark_analysis") or "比较三大指数早盘、午后与收盘节奏；未核验的因果不作强行归因。")}</p></section>',
+            f'<section class="section">{section_head("04", cn_stock_section_title, stock_section_note)}<div class="table-wrap"><table><thead><tr><th>股票</th><th>开盘</th><th>最高</th><th>最低</th><th>收盘</th><th>日内涨跌</th><th>前收至收盘</th><th>成交量</th><th>5m条数</th></tr></thead><tbody>{market_rows(stocks)}</tbody></table></div><div class="chart-grid">{key_bar}{stock_chart}</div><ul class="analysis-list">{stock_comments}</ul></section>',
+            f'<section class="section">{section_head("05", "当日大幅波动股票", f"{len(movers)} 只；沪深主板、创业板和科创板，按过滤后的涨跌幅排序")}<div class="chart-grid">{mover_bar}</div><div class="table-wrap"><table><thead><tr><th>股票</th><th>收盘价</th><th>当日涨跌</th><th>成交额</th><th>类型</th><th>主要驱动与点评</th></tr></thead><tbody>{mover_rows}</tbody></table></div></section>',
+            f'<section class="section">{section_head("06", cn_sector_section_title, sector_note)}<h3>{fixed_sector_heading}</h3><div class="table-wrap"><table>{sector_header}<tbody>{cn_sector_rows(fixed_tech)}</tbody></table></div><div class="split"><div><h3>申万一级涨幅前五</h3><div class="table-wrap"><table>{sector_header}<tbody>{cn_sector_rows(top5)}</tbody></table></div></div><div><h3>申万一级跌幅前五</h3><div class="table-wrap"><table>{sector_header}<tbody>{cn_sector_rows(bottom5)}</tbody></table></div></div></div><h3>当日涨跌显著的科技概念</h3><div class="table-wrap"><table>{sector_header}<tbody>{cn_sector_rows(concepts)}</tbody></table></div><p class="analysis-copy">{h(payload.get("structure_analysis") or "按接口口径描述板块分化；板块事实、新闻事实和分析推断分开表述。")}</p></section>',
+        ])
+        section_number = 7
+    elif report_type == "full_rth":
         rendered_benchmarks = benchmark_kpi_rows(payload, sectors)
         benchmark_cards = "".join(
             f'<article class="kpi benchmark-kpi {cls(row.get("day_pct"))}"><span>{h(row.get("kpi_label"))}</span>'
@@ -384,9 +527,17 @@ def build_html(payload: dict[str, Any], input_path: Path, css: str) -> tuple[str
             "标普500 / 纳斯达克100 RTH 归一化走势",
             "现金指数优先；缺失时使用 SPY/QQQ ETF代理；首根5分钟收盘归一化为0%",
         )
-        core_chart_rows = [row for row in stocks if row.get("ticker") in {"INTC", "NVDA", "GOOG", "MSFT", "AAPL"}]
-        stock_chart = line_chart([(str(row.get("ticker")), row_series(series, row)) for row in core_chart_rows], "重点科技股 RTH 归一化走势", "INTC、NVDA、GOOG、MSFT、AAPL；真实日内收盘条")
-        key_bar = bar_chart([(str(row.get("ticker")), row.get("rth_pct")) for row in stocks], "重点股票 RTH 涨跌幅", "严格 09:30 正式开盘至正常时段最后一根")
+        core_chart_rows = stocks[:5] if us_custom_watchlist else [row for row in stocks if row.get("ticker") in {"INTC", "NVDA", "GOOG", "MSFT", "AAPL"}]
+        stock_chart = line_chart(
+            [(str(row.get("ticker")), row_series(series, row)) for row in core_chart_rows],
+            "重点关注股 RTH 归一化走势" if us_custom_watchlist else "重点科技股 RTH 归一化走势",
+            (f"{us_watchlist_kind}名单前{len(core_chart_rows)}只；真实日内收盘条" if us_custom_watchlist else "INTC、NVDA、GOOG、MSFT、AAPL；真实日内收盘条"),
+        )
+        key_bar = bar_chart(
+            [(str(row.get("ticker")), row.get("rth_pct")) for row in stocks],
+            "重点关注股 RTH 涨跌幅" if us_custom_watchlist else "重点股票 RTH 涨跌幅",
+            "严格 09:30 正式开盘至正常时段最后一根",
+        )
         mover_bar = bar_chart([(str(row.get("ticker")), row.get("day_pct")) for row in movers], "当日大幅波动股票涨跌幅", "前一交易日正式收盘至当日正常时段最后一根")
         mover_rows = "".join(
             f'<tr><td><strong>{h(row.get("ticker"))}</strong><small>{h(row.get("name"))}</small></td><td>{number(row.get("close"))}</td>'
@@ -395,25 +546,29 @@ def build_html(payload: dict[str, Any], input_path: Path, css: str) -> tuple[str
             for row in movers
         )
         stock_comments = "".join(f'<li><strong>{h(row.get("ticker"))}：</strong>{h(row.get("comment") or "日内走势描述待核验。")}</li>' for row in stocks)
+        us_stock_note = f"{us_watchlist_kind}名单，共{len(stocks)}只；严格使用可核验RTH数据" if us_custom_watchlist else "核心股 + SKHY、TSM 及可用时的 SPCX"
+        us_sector_note = f"{us_watchlist_kind}板块代理，共{len(sectors)}项；并列RTH与前收口径" if us_custom_watchlist else "行业 ETF 与宏观代理资产，并列 RTH 与前收口径"
         parts.extend([
             f'<section class="section">{section_head("02", "核心 KPI", "大盘基准显示当日涨跌；个股显示 RTH 与前收口径")}<div class="kpi-grid">{kpis}</div></section>',
             f'<section class="section">{section_head("03", "标普500 / 纳斯达克100 RTH 走势分析", "固定比较标普500与纳斯达克100；现金指数优先，缺失时使用 SPY/QQQ ETF代理，严格截取美东 09:30–16:00")}<div class="table-wrap"><table><thead><tr><th>指数/代理</th><th>RTH开盘</th><th>最高</th><th>最低</th><th>RTH收盘</th><th>RTH涨跌</th><th>前收至收盘</th><th>RTH量</th><th>5m条数</th></tr></thead><tbody>{market_rows(rendered_benchmarks)}</tbody></table></div><div class="chart-grid">{benchmark_chart}</div><p class="analysis-copy">{h(payload.get("benchmark_analysis") or "对比标普500与纳斯达克100的早盘、中盘与尾盘节奏及相对强弱；若采用 ETF 代理，以表格与图注标示的代理口径为准，未核验的因果不作强行归因。")}</p></section>',
-            f'<section class="section">{section_head("04", "重点科技股 RTH 表现", "核心股 + SKHY、TSM 及可用时的 SPCX")}<div class="table-wrap"><table><thead><tr><th>股票</th><th>RTH开盘</th><th>最高</th><th>最低</th><th>RTH收盘</th><th>RTH涨跌</th><th>前收至收盘</th><th>RTH量</th><th>5m条数</th></tr></thead><tbody>{market_rows(stocks)}</tbody></table></div><div class="chart-grid">{key_bar}{stock_chart}</div><ul class="analysis-list">{stock_comments}</ul></section>',
+            f'<section class="section">{section_head("04", us_stock_section_title, us_stock_note)}<div class="table-wrap"><table><thead><tr><th>股票</th><th>RTH开盘</th><th>最高</th><th>最低</th><th>RTH收盘</th><th>RTH涨跌</th><th>前收至收盘</th><th>RTH量</th><th>5m条数</th></tr></thead><tbody>{market_rows(stocks)}</tbody></table></div><div class="chart-grid">{key_bar}{stock_chart}</div><ul class="analysis-list">{stock_comments}</ul></section>',
             f'<section class="section">{section_head("05", "当日大幅波动股票", f"{len(movers)} 只；按前收至收盘绝对涨跌幅或影响力排序")}<div class="chart-grid">{mover_bar}</div><div class="table-wrap"><table><thead><tr><th>股票</th><th>收盘价</th><th>前收至收盘</th><th>RTH涨跌</th><th>类型</th><th>主要驱动与点评</th></tr></thead><tbody>{mover_rows}</tbody></table></div></section>',
-            f'<section class="section">{section_head("06", "板块与市场结构", "行业 ETF 与宏观代理资产，并列 RTH 与前收口径")}<div class="split"><div class="table-wrap"><table><thead><tr><th>ETF/板块</th><th>RTH涨跌</th><th>前收至收盘</th><th>收盘</th></tr></thead><tbody>{compact_rows(sectors)}</tbody></table></div><div class="table-wrap"><table><thead><tr><th>宏观资产</th><th>RTH涨跌</th><th>前收至收盘</th><th>收盘</th></tr></thead><tbody>{compact_rows(macro)}</tbody></table></div></div><p class="analysis-copy">{h(payload.get("structure_analysis") or "根据可得板块 ETF 的实际涨跌分析成长/价值、大盘/小盘与防御/周期风格；若代理数据不完整，以数据缺口说明为准。")}</p></section>',
+            f'<section class="section">{section_head("06", us_sector_section_title, us_sector_note)}<div class="split"><div class="table-wrap"><table><thead><tr><th>ETF/板块</th><th>RTH涨跌</th><th>前收至收盘</th><th>收盘</th></tr></thead><tbody>{compact_rows(sectors)}</tbody></table></div><div class="table-wrap"><table><thead><tr><th>宏观资产</th><th>RTH涨跌</th><th>前收至收盘</th><th>收盘</th></tr></thead><tbody>{compact_rows(macro)}</tbody></table></div></div><p class="analysis-copy">{h(payload.get("structure_analysis") or "根据可得板块 ETF 的实际涨跌分析成长/价值、大盘/小盘与防御/周期风格；若代理数据不完整，以数据缺口说明为准。")}</p></section>',
         ])
         section_number = 7
     else:
-        parts.append(f'<section class="section"><div class="closed-banner">今日美股休市，无需生成完整美股复盘</div><p>本页仅保留可核验的市场新闻、国际新闻、人物言论与下一交易日关注。没有生成或替代任何当日 RTH 价格与图表。</p></section>')
+        closed_phrase = "今日A股休市，无需生成完整A股复盘" if is_cn else "今日美股休市，无需生成完整美股复盘"
+        boundary = "当日A股价格与图表" if is_cn else "当日 RTH 价格与图表"
+        parts.append(f'<section class="section"><div class="closed-banner">{closed_phrase}</div><p>本页仅保留可核验的市场新闻、国际新闻、人物言论与下一交易日关注。没有生成或替代任何{boundary}。</p></section>')
         section_number = 2
 
     global_chart = bar_chart([(str(item.get("impact_type") or item.get("region") or f"事件{idx}"), item.get("impact_score")) for idx, item in enumerate(global_news, 1)], "国际新闻事件影响分类", "定性影响等级1–5；用于比较影响范围，不代表发生概率")
     parts.extend([
-        f'<section class="section">{section_head(f"{section_number:02d}", "影响美股的关键新闻", "事件、影响资产、市场反应与逻辑链条分开表述")}{market_news_html}</section>',
+        f'<section class="section">{section_head(f"{section_number:02d}", "影响A股的关键新闻" if is_cn else "影响美股的关键新闻", "事件、影响资产、市场反应与逻辑链条分开表述")}{market_news_html}</section>',
         f'<section class="section">{section_head(f"{section_number+1:02d}", "过去 24 小时国际新闻大事", f"{len(global_news)} 条；按重要性排序，持续事件明确标注")}<div class="chart-grid">{global_chart}</div><div class="global-grid">{global_html}</div></section>',
         f'<section class="section">{section_head(f"{section_number+2:02d}", "重要人物发言与言论", f"{len(voices)} 条；原文仅保留可核验短句，网友热评不杜撰")}<div class="voice-grid">{voices_html}</div></section>',
         f'<section class="section">{section_head(f"{section_number+3:02d}", "下一交易日关注", "仅列可靠公开日程或明确待验证事项")}<div class="watchlist">{watch_html}</div></section>',
-        f'<footer class="section foot"><h2>数据来源与说明</h2><h3>数据说明、来源与时效</h3><p>RTH 仅指美东 09:30–16:00；前收至收盘与 RTH 开盘至收盘分开展示。TradingView 为公开聚合图表数据，非交易所认证收盘价。</p><ul class="data-notes">{notes_html}</ul>{gaps_html}<h3>主要数据/新闻来源</h3><ol class="source-list">{source_list}</ol><p>生成时间：{h(generated_at)}。审计数据与报告同日保存。</p></footer>',
+        f'<footer class="section foot"><h2>数据来源与说明</h2><h3>数据说明、来源与时效</h3><p>{"A股日内仅指北京时间09:30–11:30、13:00–15:00；新浪财经为公开聚合行情源，非交易所认证数据。" if is_cn else "RTH 仅指美东 09:30–16:00；前收至收盘与 RTH 开盘至收盘分开展示。TradingView 为公开聚合图表数据，非交易所认证收盘价。"}</p><ul class="data-notes">{notes_html}</ul>{gaps_html}<h3>主要数据/新闻来源</h3><ol class="source-list">{source_list}</ol><p>生成时间：{h(generated_at)}。审计数据与报告同日保存。</p></footer>',
         '</main></body></html>',
     ])
     html = "".join(parts)
@@ -421,8 +576,8 @@ def build_html(payload: dict[str, Any], input_path: Path, css: str) -> tuple[str
     audit.update({
         "title": title, "used_series_files": used_series_files,
         "quality_checks": {
-            "exact_title": True, "aapl_spelling": "AAPL" in html and "APPL" not in html,
-            "rth_not_24h": "09:30–16:00" in html and "24小时完整期货时段" not in html,
+            "exact_title": True, "aapl_spelling": ("AAPL" in html and "APPL" not in html) if not is_cn else None,
+            "session_boundary": ("09:30–11:30" in html and "13:00–15:00" in html) if is_cn else ("09:30–16:00" in html and "24小时完整期货时段" not in html),
             "inline_css": "<style>" in html, "external_js": "<script" in html,
             "visual_slots": html.count('data-chart-slot="true"'), "embedded_svg_charts": html.count("<svg"),
             "market_news_count": len(market_news), "global_news_count": len(global_news),
@@ -445,8 +600,8 @@ def main() -> int:
     raw_payload = input_path.read_text(encoding="utf-8")
     if not args.allow_draft and PLACEHOLDERS.search(raw_payload):
         raise SystemExit("Refusing final render: unfinished placeholder found in payload")
-    if payload.get("report_type") not in {"full_rth", "closed_market"}:
-        raise SystemExit("report_type must be full_rth or closed_market")
+    if payload.get("report_type") not in {"full_rth", "closed_market", "full_cn", "closed_cn"}:
+        raise SystemExit("report_type must be full_rth, closed_market, full_cn, or closed_cn")
     css_path = Path(__file__).resolve().parent.parent / "assets" / "report.css"
     html, audit = build_html(payload, input_path, css_path.read_text(encoding="utf-8"))
     output = Path(args.output).resolve()

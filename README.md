@@ -1,12 +1,16 @@
-# Goodluck 美股每日盘后回顾
+# Goodluck 美股 / A股每日盘后回顾
 
-`goodluck-us-market-daily-review` 是一个用于生成、修复和质量检查中文美股盘后复盘的 Codex Skill。它会优先生成独立 HTML 报告，同时保存数据审计 JSON，并对数据口径、来源链接和页面展示进行检查。
+`goodluck-stock-review` 是一个用于生成、修复和质量检查中文美股或 A 股盘后复盘的 Codex Skill。用户在提示词中明确市场，Skill 会走对应分支，生成独立 HTML 报告和数据审计 JSON。新增 A 股能力不改变原有美股功能、口径和输出文件名。
 
 ## 主要功能
 
-- 生成中文美股每日盘后复盘 HTML。
-- 使用美东时间 09:30–16:00 的常规交易时段（RTH）数据。
+- 根据提示词生成中文美股或 A 股每日盘后复盘 HTML。
+- 美股和A股均保留内置关注名单，并支持用户通过自然语言保存自己的本地默认板块与个股；后续自动复盘无需重复输入。
+- 美股继续使用美东时间 09:30–16:00 的常规交易时段（RTH）数据。
 - 核心指数固定为标普500与纳斯达克100，优先使用 SPX、NDX 现金指数；缺失时仅使用对应的 SPY、QQQ ETF 代理并明确披露。
+- A 股核心指数固定为上证综指、创业板指和科创50，使用北京时间 09:30–11:30、13:00–15:00 的现金指数数据。
+- A 股首次安装默认跟踪申万一级电子、计算机、通信、传媒；用户可通过自然语言将自己的板块和个股保存为本地默认名单，后续复盘自动使用。
+- A 股异动股范围仅含沪深主板、创业板和科创板，并排除北交所、ST/*ST、退市整理、新上市不足20个观察交易日及当日成交额低于5亿元的股票。
 - 展示重点科技股、市场板块、异动股票、宏观资产、市场新闻和国际要闻。
 - 区分已核验事实、分析判断和待核实信息，并为重要内容保留来源链接。
 - 生成数据审计文件，并检查报告结构、数据覆盖和图表完整性。
@@ -17,7 +21,7 @@
 将仓库克隆到 Codex 的技能目录：
 
 ```bash
-git clone https://github.com/Simi-art/goodluck-us-market-daily-review.git ~/.codex/skills/goodluck-us-market-daily-review
+git clone https://github.com/goodluckworks/goodluck-us-market-daily-review.git ~/.codex/skills/goodluck-stock-review
 ```
 
 重新打开 Codex 后，即可通过技能名称调用。
@@ -25,19 +29,43 @@ git clone https://github.com/Simi-art/goodluck-us-market-daily-review.git ~/.cod
 ## 使用示例
 
 ```text
-使用 $goodluck-us-market-daily-review 生成最新已完成美股交易日的中文盘后复盘。
+使用 $goodluck-stock-review 生成最新已完成美股交易日的中文盘后复盘。
 ```
+
+生成 A 股报告时明确写出市场：
+
+```text
+使用 $goodluck-stock-review 生成最新已完成A股交易日的中文盘后复盘。
+```
+
+修改本机以后长期使用的A股默认关注范围：
+
+```text
+请将我的A股默认关注板块修改为电子、计算机、通信、国防军工；默认关注个股修改为北方华创（002371）、中微公司（688012）、浪潮信息（000977）。请核对代码、名称和行业后保存为本地默认名单，以后生成A股复盘时自动使用。
+```
+
+本地名单保存在 `~/.goodluck-stock-review/cn-watchlist.json`，不在 Skill 安装目录中，因此重新安装或升级 Skill 不会覆盖。用户没有设置本地名单时，自动使用 Skill 内置默认名单；说“恢复A股内置默认名单”即可删除本地覆盖。
+
+美股使用方法相同，例如：
+
+```text
+请将我的美股默认关注个股修改为NVDA、AAPL和AMD，默认关注板块修改为科技、半导体和能源。请核对股票代码、名称、交易所和TradingView代码后保存为本地默认名单，以后生成美股复盘时自动使用。
+```
+
+美股本地名单保存在 `~/.goodluck-stock-review/us-watchlist.json`。标普500、纳斯达克100及SPY/QQQ回退口径不会被自定义名单替换。
 
 也可以指定历史交易日：
 
 ```text
-使用 $goodluck-us-market-daily-review 生成 2026-08-21 的美股每日复盘。
+使用 $goodluck-stock-review 生成 2026-08-21 的美股每日复盘。
 ```
 
 技能默认先保存以下文件，再返回文件位置和数据缺口：
 
 - `market_review_YYYY-MM-DD.html`：可独立打开的复盘网页。
 - `data/market_data_YYYY-MM-DD.json`：数据审计文件。
+- `cn_market_review_YYYY-MM-DD.html`：A 股复盘网页。
+- `data/cn_market_data_YYYY-MM-DD.json`：A 股数据审计文件。
 - `data/` 下的原始行情与报告输入文件。
 
 ## 数据口径
@@ -47,20 +75,23 @@ git clone https://github.com/Simi-art/goodluck-us-market-daily-review.git ~/.cod
 - 优先使用 SPX、NDX；不可用时才回退至 SPY、QQQ，并在报告中标明 ETF 代理。
 - 不使用 ES/NQ 全天期货数据替代现金指数，也不将纳斯达克综合指数 IXIC 与纳斯达克100混用。
 - 缺失或无法核验的数据会披露，不会通过猜测补齐。
+- A 股三大指数、KPI 与日内对比图保持同一现金指数口径，不使用 ETF 代理。
+- 新浪财经作为 A 股公开聚合行情源，交易日与公告仍优先通过上交所、深交所及公司公告核验。
 
 ## 目录结构
 
 ```text
-goodluck-us-market-daily-review/
+goodluck-stock-review/
 ├── SKILL.md                 # 技能入口与执行要求
 ├── agents/openai.yaml       # Codex 展示信息与默认调用提示
-├── scripts/                 # 数据获取、渲染和校验脚本
-├── references/              # 数据政策、报告规范和视觉检查要求
+├── scripts/                 # 美股/A股日期、行情、渲染和校验脚本
+├── references/              # 两个市场的数据政策、报告规范和视觉检查要求
 └── assets/                  # 页面样式与技能图标
 ```
 
 ## 注意事项
 
-- 行情和新闻数据可能受到来源可用性、延迟及访问限制影响。
+- 运行自动化时，请分别使用“生成美股每日总结”和“生成A股每日总结”等明确提示词。
+- 行情和新闻数据可能受到来源可用性、延迟及访问限制影响；历史 A 股异动榜优先使用保存的同日快照，不会拿当前榜单替代历史榜单。
 - 使用者应检查报告中的来源、数据说明和未核验项目。
 - 本技能及其生成内容仅用于个人市场复盘与研究，不构成任何投资建议。
