@@ -84,7 +84,6 @@ td small { color: var(--muted); line-height: 1.35; }
 .voice-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 .voice-head span { font-size: 11px; color: #475467; background: #eef2f7; border-radius: 999px; padding: 3px 8px; }
 .voice blockquote { margin: 12px 0; padding: 12px 14px; border-left: 3px solid #4777d8; background: #f5f8ff; color: #243a69; font-family: Georgia, "Times New Roman", serif; overflow-wrap: anywhere; }
-.comments { color: #4c5b70; font-size: 13px; }
 .watch { background: #fbfcfe; }
 .watch time { color: #2563eb; font-weight: 700; }
 .foot { color: var(--muted); font-size: 12px; }

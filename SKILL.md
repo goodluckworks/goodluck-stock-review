@@ -201,11 +201,11 @@ Use current web research because market data, news, quotes, schedules, and publi
 
 1. exchange/official economic data/company IR/SEC/Federal Reserve;
 2. AP, Reuters, Bloomberg, CNBC, WSJ, FT, MarketWatch, Yahoo Finance;
-3. social platforms only for clearly labeled original posts or selected public-comment samples.
+3. social platforms only for clearly labeled, directly inspectable original posts.
 
 For each market-news item, store event, affected assets, observed reaction, cautious logic chain, source name, timestamp, and direct URL. For each global-news item, store region, summary, why it matters, possible impact, source/time, and development status.
 
-For important-person items, use a short verifiable original quote only when the original text is available. Otherwise label it as a source paraphrase. Do not invent a platform, timestamp, quote, engagement count, or popular-comment ranking. Write `未找到可审计的原帖热评排名` when necessary.
+For important-person items, use a short verifiable original quote only when the original text is available. Otherwise label it as a source paraphrase. Store the person's name alone in `person`. Show a role/title only when the cited original source explicitly states it: put the display wording in `title` and retain the source's exact wording in `title_source_text`. A Chinese translation may be used in `title`, but it must not add seniority, organization, scope, or function absent from the source. If the original source does not state a title, omit both fields and display only the person's name. Do not infer a title from general knowledge, another article, or the person's usual job. Do not collect, summarize, store, or render popular user comments or comment rankings for this section.
 
 Separate facts from inference with `[fact]` / `[inference]` in the payload or `[事实]` / `[推断]` in Chinese copy. Do not use price action alone as proof of a catalyst.
 
@@ -275,7 +275,7 @@ Return only a concise completion summary containing:
 
 ## Non-negotiable rules
 
-- Never fabricate prices, moves, volume, news, quotes, comments, sources, or causal explanations.
+- Never fabricate prices, moves, volume, news, quotes, person titles, sources, or causal explanations.
 - Never mix premarket, after-hours, or 24-hour futures data into an RTH claim.
 - In the shareable report, use verified cash-index rows for the S&P 500 and Nasdaq-100 KPI cards and section-03 chart; fall back to SPY/QQQ with the proxy ticker disclosed in the smaller basis line, never inside the card title, and never use ES/NQ or Nasdaq Composite/IXIC as the dependency.
 - Never clone yesterday's narrative without re-researching and scrubbing stale dates/copy.

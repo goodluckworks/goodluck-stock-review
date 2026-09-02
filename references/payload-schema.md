@@ -116,18 +116,20 @@ The renderer also accepts `[title, region, source_time, summary, importance, imp
 
 ```json
 {
-  "person": "黄仁勋｜NVIDIA创始人兼CEO",
+  "person": "黄仁勋",
+  "title": "NVIDIA创始人兼首席执行官",
+  "title_source_text": "founder and CEO of NVIDIA",
   "time_platform": "YYYY-MM-DD；LinkedIn",
   "platform": "LinkedIn",
   "quote": "Short verified excerpt or clearly labeled paraphrase",
   "context": "Why it matters and verification boundary",
-  "comments": "Auditable selected comments or explicit absence disclosure",
-  "url": "https://...",
-  "comment_url": "https://..."
+  "url": "https://..."
 }
 ```
 
-Legacy list: `[person, time_platform, platform, quote, context, comments, url, comment_url]`.
+`person` contains the name only. `title` and `title_source_text` are optional as a pair: include them only when `url` points to the inspected original source that explicitly states the title. `title_source_text` preserves the exact source wording for audit and is not rendered. If no source-backed title is available, omit both and the page displays only the name. Do not add `comments` or `comment_url`.
+
+Legacy lists in the old shape `[person, time_platform, platform, quote, context, comments, url, comment_url]` remain readable for migration, but their comment fields are discarded and any role embedded in `person` is suppressed unless it is resupplied through the source-backed fields above.
 
 ## Next-watch item
 

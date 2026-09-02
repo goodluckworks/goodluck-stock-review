@@ -26,7 +26,7 @@ Review at approximately 1280–1440 px width:
 6. All five full-report visual slots have readable titles, legends, axes, and source/method captions. Section 03 shows two S&P 500/Nasdaq-100 RTH lines using SPX/NDX or visibly disclosed SPY/QQQ fallbacks; it is not a missing ES/NQ chart and never uses IXIC.
 7. Red/green moves remain distinguishable with text signs and are not color-only.
 8. Long Chinese news headlines wrap cleanly.
-9. Global-news and quote cards have consistent heights and spacing without excessive empty areas.
+9. Global-news and quote cards have consistent heights and spacing without excessive empty areas. Quote cards contain no popular-comment/sample-boundary block; a person title appears only when the audit item includes source-backed `title` and `title_source_text`, otherwise only the name is shown.
 10. URLs/source labels are readable and not raw unbroken strings.
 11. Footer data notes, sources, gaps, and generated time are visible but lower-emphasis than body analysis; the disclaimer is not repeated there.
 12. Interpretive paragraphs such as benchmark-relative-strength and sector-structure commentary use normal text, not yellow framed callouts.
@@ -61,6 +61,7 @@ Use the same desktop and mobile checks as the U.S. report, plus:
 5. Section 05 visibly states the restricted market universe and mover filters; no Beijing, ST, delisting, too-new, or below-threshold row appears.
 6. Section 06 contains all effective fixed industries (the built-in default is 电子、计算机、通信、传媒), five strongest and five weakest level-one industries, and significant technology concepts without overflowing on narrow screens.
 7. A full A-share report has the same five visual slots as the U.S. report, adapted to China-market content.
+8. Section 09 follows the same title-evidence and no-public-comments rules as the U.S. report.
 
 ## Iteration rules
 

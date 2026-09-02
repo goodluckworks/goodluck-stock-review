@@ -51,6 +51,16 @@ def normalize_item(item: Any, keys: list[str]) -> dict[str, Any]:
     return dict(zip(keys, item)) if isinstance(item, list) else {}
 
 
+def normalize_voice(item: Any) -> dict[str, Any]:
+    legacy_keys = ["person", "time_platform", "platform", "quote", "context", "comments", "url", "comment_url"]
+    raw = dict(item) if isinstance(item, dict) else dict(zip(legacy_keys, item)) if isinstance(item, list) else {}
+    person = str(raw.get("person") or "").strip()
+    raw["person"] = re.split(r"\s*[|｜]\s*", person, maxsplit=1)[0].strip()
+    raw.pop("comments", None)
+    raw.pop("comment_url", None)
+    return raw
+
+
 def load_series(paths: list[str]) -> dict[str, dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
     for raw in paths:
@@ -176,12 +186,15 @@ def main() -> int:
 
     market_items = [normalize_item(item, ["title", "source_time", "fact", "inference", "url"]) for item in audit.get("market_news", [])]
     global_items = [normalize_item(item, ["title", "region", "source_time", "summary", "importance", "impact", "impact_score", "impact_type", "url"]) for item in audit.get("global_news", [])]
-    voices = [normalize_item(item, ["person", "time_platform", "platform", "quote", "context", "comments", "url", "comment_url"]) for item in audit.get("voices", [])]
+    voices = [normalize_voice(item) for item in audit.get("voices", [])]
     watches = [item for item in audit.get("next_watch", []) if isinstance(item, dict)]
     gaps = " ".join(str(item) for item in audit.get("data_gaps", []))
     check(all(item.get("title") and item.get("source_time") and item.get("url") for item in market_items), "market_news_per_item_source_time_url", failures)
     check(all(item.get("title") and item.get("region") and item.get("source_time") and item.get("url") for item in global_items), "global_news_per_item_source_time_url", failures)
-    check(all(item.get("person") and item.get("time_platform") and item.get("platform") and item.get("quote") and item.get("url") and item.get("comments") for item in voices), "voices_required_fields", failures)
+    check(all(item.get("person") and item.get("time_platform") and item.get("platform") and item.get("quote") and item.get("url") for item in voices), "voices_required_fields", failures)
+    check(all(not item.get("title") or (item.get("title_source_text") and item.get("url")) for item in voices), "voice_titles_have_original_source_text", failures)
+    check(all(not re.search(r"[|｜]", str(item.get("person") or "")) for item in voices), "voice_person_name_only", failures)
+    check(all(term not in html for term in ["热门网友评论", "原帖热评", "评论样本", "跨平台热度排名"]), "no_public_comment_content", failures)
     check(all(item.get("title") and item.get("detail") for item in watches), "watch_required_fields", failures)
     check(len(market_items) in range(5, 9) or "市场新闻" in gaps, "market_news_count_5_8_or_gap", failures)
     check(len(global_items) in range(6, 11) or "国际新闻" in gaps, "global_news_count_6_10_or_gap", failures)

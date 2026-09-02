@@ -109,4 +109,6 @@ Reuse the existing U.S. visual system and the same section order:
 10. 下一交易日关注;
 11. 数据来源与说明.
 
+第09部分与美股共用同一证据规则：不采集或展示热门网友评论；人物职务只有在当前引用的原文明确写出时才展示，否则仅显示姓名，禁止根据常识或其他页面补全。
+
 Keep five full-session visual slots: three-index normalized intraday line, core-leader normalized line, core-leader daily-move bars, mover daily-move bars, and international-news impact chart. The hero, disclaimer, cards, typography, colors, inline SVG, responsive behavior, and quiet footer must match the U.S. version.

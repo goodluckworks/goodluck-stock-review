@@ -17,6 +17,7 @@ from typing import Any, Iterable
 WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
 COLORS = ["#2563eb", "#dc2626", "#16a34a", "#7c3aed", "#d97706", "#0891b2", "#db2777", "#4f46e5", "#65a30d"]
 PLACEHOLDERS = re.compile(r"\b(?:TODO|TBD|PLACEHOLDER)\b|待补充", re.I)
+PUBLIC_COMMENT_CONTENT = re.compile(r"热门网友评论|原帖热评|评论样本|跨平台热度排名|可审计.{0,12}评论")
 
 
 def h(value: object) -> str:
@@ -324,21 +325,39 @@ def normalize_global_item(item: Any) -> dict[str, Any]:
 
 
 def normalize_voice(item: Any) -> dict[str, Any]:
-    if isinstance(item, dict):
-        return item
-    keys = ["person", "time_platform", "platform", "quote", "context", "comments", "url", "comment_url"]
-    return dict(zip(keys, item)) if isinstance(item, list) else {}
+    legacy_keys = ["person", "time_platform", "platform", "quote", "context", "comments", "url", "comment_url"]
+    raw = dict(item) if isinstance(item, dict) else dict(zip(legacy_keys, item)) if isinstance(item, list) else {}
+    person = str(raw.get("person") or "").strip()
+    # Older payloads sometimes embedded an inferred role after the person's
+    # name. Never carry that suffix forward without separate source evidence.
+    raw["person"] = re.split(r"\s*[|｜]\s*", person, maxsplit=1)[0].strip()
+    raw.pop("comments", None)
+    raw.pop("comment_url", None)
+    return raw
+
+
+def voice_heading(item: dict[str, Any]) -> str:
+    person = h(item.get("person"))
+    title = str(item.get("title") or "").strip()
+    title_source_text = str(item.get("title_source_text") or "").strip()
+    # The validator rejects an unsupported title. The renderer also suppresses
+    # it defensively so an unverified role is never exposed in draft output.
+    if title and title_source_text and item.get("url"):
+        return f"{person}｜{h(title)}"
+    return person
 
 
 def source_index(payload: dict[str, Any], groups: Iterable[list[dict[str, Any]]]) -> dict[str, str]:
-    sources = {str(label): str(url) for label, url in (payload.get("sources") or {}).items() if url}
+    sources = {
+        str(label): str(url)
+        for label, url in (payload.get("sources") or {}).items()
+        if url and not PUBLIC_COMMENT_CONTENT.search(str(label))
+    }
     for group in groups:
         for item in group:
             url = item.get("url") or item.get("source")
             if url:
                 sources.setdefault(item.get("source_label") or item.get("title") or item.get("ticker") or "来源", str(url))
-            if item.get("comment_url"):
-                sources.setdefault((item.get("person") or "人物") + " 评论样本", str(item["comment_url"]))
     return sources
 
 
@@ -360,8 +379,8 @@ def build_html(payload: dict[str, Any], input_path: Path, css: str) -> tuple[str
     global_news = [normalize_global_item(item) for item in payload.get("global_news", [])]
     voices = [normalize_voice(item) for item in payload.get("voices", [])]
     watches = [item for item in payload.get("next_watch", []) if isinstance(item, dict)]
-    data_notes = [str(item) for item in payload.get("data_notes", [])]
-    data_gaps = [str(item) for item in payload.get("data_gaps", [])]
+    data_notes = [str(item) for item in payload.get("data_notes", []) if not PUBLIC_COMMENT_CONTENT.search(str(item))]
+    data_gaps = [str(item) for item in payload.get("data_gaps", []) if not PUBLIC_COMMENT_CONTENT.search(str(item))]
     generated_at = str(payload.get("generated_at", "未核验"))
     overview_lead = str(payload.get("overview_lead") or "").strip()
     rendered_benchmarks: list[dict[str, Any]] = []
@@ -395,10 +414,9 @@ def build_html(payload: dict[str, Any], input_path: Path, css: str) -> tuple[str
     ) or '<div class="notice">未取得足够可核验的国际新闻，未生成填充内容。</div>'
 
     voices_html = "".join(
-        f'<article class="voice"><div class="voice-head"><h3>{h(item.get("person"))}</h3><span>{h(item.get("platform"))}</span></div>'
+        f'<article class="voice"><div class="voice-head"><h3>{voice_heading(item)}</h3><span>{h(item.get("platform"))}</span></div>'
         f'<div class="meta">{h(item.get("time_platform"))}</div><blockquote>{h(item.get("quote"))}</blockquote><p>{h(item.get("context"))}</p>'
-        f'<p class="comments"><strong>热门网友评论/样本边界：</strong>{h(item.get("comments"))}</p>'
-        f'<div class="source">{link(item.get("url"), "原文来源")}{(" · " + link(item.get("comment_url"), "评论样本")) if item.get("comment_url") else ""}</div></article>'
+        f'<div class="source">{link(item.get("url"), "原文来源")}</div></article>'
         for item in voices
     ) or '<div class="notice">未找到足够可核验的人物原话/转述，未生成填充内容。</div>'
 
@@ -566,7 +584,7 @@ def build_html(payload: dict[str, Any], input_path: Path, css: str) -> tuple[str
     parts.extend([
         f'<section class="section">{section_head(f"{section_number:02d}", "影响A股的关键新闻" if is_cn else "影响美股的关键新闻", "事件、影响资产、市场反应与逻辑链条分开表述")}{market_news_html}</section>',
         f'<section class="section">{section_head(f"{section_number+1:02d}", "过去 24 小时国际新闻大事", f"{len(global_news)} 条；按重要性排序，持续事件明确标注")}<div class="chart-grid">{global_chart}</div><div class="global-grid">{global_html}</div></section>',
-        f'<section class="section">{section_head(f"{section_number+2:02d}", "重要人物发言与言论", f"{len(voices)} 条；原文仅保留可核验短句，网友热评不杜撰")}<div class="voice-grid">{voices_html}</div></section>',
+        f'<section class="section">{section_head(f"{section_number+2:02d}", "重要人物发言与言论", f"{len(voices)} 条；原文仅保留可核验短句，人物职务仅在原文明确时展示")}<div class="voice-grid">{voices_html}</div></section>',
         f'<section class="section">{section_head(f"{section_number+3:02d}", "下一交易日关注", "仅列可靠公开日程或明确待验证事项")}<div class="watchlist">{watch_html}</div></section>',
         f'<footer class="section foot"><h2>数据来源与说明</h2><h3>数据说明、来源与时效</h3><p>{"A股日内仅指北京时间09:30–11:30、13:00–15:00；新浪财经为公开聚合行情源，非交易所认证数据。" if is_cn else "RTH 仅指美东 09:30–16:00；前收至收盘与 RTH 开盘至收盘分开展示。TradingView 为公开聚合图表数据，非交易所认证收盘价。"}</p><ul class="data-notes">{notes_html}</ul>{gaps_html}<h3>主要数据/新闻来源</h3><ol class="source-list">{source_list}</ol><p>生成时间：{h(generated_at)}。审计数据与报告同日保存。</p></footer>',
         '</main></body></html>',
@@ -575,6 +593,10 @@ def build_html(payload: dict[str, Any], input_path: Path, css: str) -> tuple[str
     audit = dict(payload)
     audit.update({
         "title": title, "used_series_files": used_series_files,
+        "voices": voices,
+        "data_notes": data_notes,
+        "data_gaps": data_gaps,
+        "sources": all_sources,
         "quality_checks": {
             "exact_title": True, "aapl_spelling": ("AAPL" in html and "APPL" not in html) if not is_cn else None,
             "session_boundary": ("09:30–11:30" in html and "13:00–15:00" in html) if is_cn else ("09:30–16:00" in html and "24小时完整期货时段" not in html),

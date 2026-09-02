@@ -220,7 +220,7 @@ When data exists, cover technology, semiconductors, financials, energy, health c
 
 5–10 entries when evidence supports them. Candidate people include Jensen Huang, Elon Musk, Tim Cook, large-company leaders, and prominent policymakers such as the U.S. president.
 
-Each entry needs person/role, time, platform, short original quote or labeled paraphrase, context, source, and an auditable public-comment sample or an explicit absence disclosure.
+Each entry needs the person's name, time, platform, a short original quote or labeled paraphrase, context, and source. A role/title is optional and may appear only when the cited original source explicitly states it; retain the source wording in `title_source_text`. If that evidence is absent, display only the name. Do not collect or display popular-comment samples, comment rankings, engagement counts, or absence disclosures about comments.
 
 ### 10. Next trading day watch
 
@@ -280,7 +280,7 @@ Before completion, verify:
 
 1. U.S. report date and weekday are correct.
 2. `AAPL` is present and no incorrect ticker spelling is visible.
-3. Every number, news item, quote, comment sample, and schedule has a source chain or explicit gap.
+3. Every number, news item, quote, displayed person title, and schedule has a source chain or explicit gap.
 4. RTH is separated from premarket/after-hours/24-hour futures.
 5. The section-03 comparison contains two real RTH benchmark series and does not depend on ES/NQ.
 6. Charts use real data or an explicit missing-data placeholder.

@@ -83,14 +83,16 @@ Every item needs source name, publication/update time, direct URL, and event/rea
 
 For the 24-hour international section, verify that the event happened or materially updated inside the window. An older event may remain only if there is a new, sourced development, and should be marked `仍在发展中` where applicable.
 
-## 6. Quotes and public comments
+## 6. Quotes and source-verified person titles
 
 - Quote at most a short verifiable excerpt.
 - If the exact original post is unavailable, use a paraphrase and label the intermediary source.
 - Store the platform only when confirmed.
-- Do not claim a comment is "top" or "popular" without auditable ranking/engagement evidence.
-- Reddit or other public samples must be labeled selective and non-representative; engagement counts can change.
-- When no reliable social sample exists, say so explicitly instead of filling the slot.
+- Keep `person` as the person's name only.
+- Add `title` only when the cited original source explicitly states that role or title; preserve the exact source wording in `title_source_text` for audit.
+- A translated title must remain faithful to the original wording and cannot add seniority, organization, scope, or function.
+- If the source does not state a title, omit it and show only the person's name. Do not fill it from memory, search-result snippets, biographies, or other sources.
+- Do not collect, summarize, store, or render public-comment samples, engagement counts, or comment rankings.
 
 ## 7. Tomorrow-watch evidence
 
@@ -108,7 +110,7 @@ Put all gaps in both `data_notes` and `data_gaps`. Common examples:
 - continuous-futures roll/settlement difference;
 - 15:55 final stock bar;
 - unverified single-stock catalyst;
-- unavailable original social post or comment ranking;
+- unavailable original social post;
 - unresolved schedule/time;
 - article timestamp unavailable.
 
