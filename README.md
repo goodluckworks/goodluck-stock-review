@@ -1,6 +1,6 @@
 # Goodluck 美股 / A股每日盘后回顾
 
-`goodluck-stock-review` 是一个用于生成、修复和质量检查中文美股或 A 股盘后复盘的 Codex Skill。用户在提示词中明确市场，Skill 会走对应分支，生成独立 HTML 报告和数据审计 JSON。新增 A 股能力不改变原有美股功能、口径和输出文件名。
+`goodluck-stock-review` 是一个用于生成、修复和质量检查中文美股或 A 股盘后复盘的 Skill。用户在提示词中明确市场，Skill 会走对应分支，生成独立 HTML 报告和数据审计 JSON。新增 A 股能力不改变原有美股功能、口径和输出文件名。
 
 ## 主要功能
 
@@ -19,13 +19,13 @@
 
 ## 安装
 
-将仓库克隆到 Codex 的技能目录：
+将仓库克隆到 Codex 等 Agent 的技能目录：
 
 ```bash
 git clone https://github.com/goodluckworks/goodluck-us-market-daily-review.git ~/.codex/skills/goodluck-stock-review
 ```
 
-重新打开 Codex 后，即可通过技能名称调用。
+重新打开 Codex 或你使用的其它 Agent 后，即可通过技能名称调用。
 
 ## 使用示例
 
